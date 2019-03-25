@@ -1,0 +1,391 @@
+#################################### Problem 1 ####################################
+##1.1. Parameter settings
+library(nlme)
+#Number of individuals
+K=100
+#Covariate
+X_i = matrix(c(1,1,1,1,1,2,3,4),nrow=4, byrow=F)
+#Coefficient
+beta = matrix(1, nrow=2)
+
+#Theta of MVN
+mu_y = X_i %*% beta
+sigma_y = matrix(.5, nrow=4, ncol=4); diag(sigma_y)=1
+
+mu_y
+sigma_y
+
+##1.2. Data generation
+MVNgen <- function(K, mu, sigma) {
+  return(mvtnorm::rmvnorm(n=K, mean=mu, sigma=sigma))
+}
+
+data <- vector("list", 1000)
+for (i in 1:1000) {
+  set.seed(i)
+  data[[i]] <- MVNgen(K=K, mu_y, sigma_y)
+}
+
+
+
+
+
+
+##1.3.OLS fitting & robust variance
+beta_hat_ols <- matrix(0, nrow=1000, ncol=2)
+sigamsq_hat_ols <- 1:1000
+for (i in 1:1000) {
+  y <- c(t(data[[i]]))
+  x <- rep(1:4,100)
+  dat <- as.data.frame(cbind(y, x)); names(dat) <-c("y", "x")
+  mod1 <- lm(y~x, data=dat)
+  beta_hat_ols[i,] <- mod1$coefficients
+  sigmasq_hat_ols[i] <- sum(mod1$residuals^2)/(K-2)
+}
+
+#simulation coefficients mean & variance
+apply(beta_hat_ols,2,function(x) mean(x))
+apply(beta_hat_ols,2,function(x) var(x))
+
+#model-based variance estimates
+x <- cbind(rep(1,400), rep(1:4,100))
+beta_var_ols <- cbind(sigmasq_hat_ols*solve(t(X)%*%X)[1,1],
+                      sigmasq_hat_ols*solve(t(X)%*%X)[2,2])
+
+#heteroskedasticity-roubst variance estimates
+JV <- function(i) {
+  y <- c(t(data[[i]]))
+  x <- cbind(rep(1,400), rep(1:4,100))
+  beta_tilda <- solve(t(x)%*%x) %*% (t(x)%*%(y-(x%*%beta)))
+  JV_estimate <- matrix(0, nrow=2, ncol=2)
+  for (j in 1:100) {
+    x.i <- x[-(1:4),]
+    y.i <- y[-((4*j-3):(4*j))]
+    beta_i <- solve(t(x.i) %*%x.i) %*% (t(x.i)%*%(y.i-x.i%*%beta))
+    JV_estimate <- JV_estimate + (beta_i-beta_tilda)%*%t((beta_i-beta_tilda))
+  }
+  return(JV_estimate)
+}
+
+beta_var_jv <- matrix(0, nrow=1000, ncol=2)
+for (i in 1:1000) {beta_var_jv[i,] <- diag(JV(i))}
+
+#variance comparison: mean & 95% CI coverage probability
+apply(beta_var_ols,2,function(x) mean(x))
+apply(beta_var_jv,2,function(x) mean(x))
+
+ols.lb <- beta_hat_ols - qt(.975, K-2)*sqrt(beta_var_ols)
+ols.ub <- beta_hat_ols + qt(.975, K-2)*sqrt(beta_var_ols)
+jv.lb <- beta_hat_ols - qt(.975, K-2)*sqrt(beta_var_jv)
+jv.ub <- beta_hat_ols + qt(.975, K-2)*sqrt(beta_var_jv)
+beta0_cov_prob_ols <- 0
+beta0_cov_prob_jv <- 0
+beta1_cov_prob_ols <- 0
+beta1_cov_prob_jv <- 0
+for (i in 1:1000) {
+  if (ols.lb[i,1]<1 & ols.ub[i,1]>1) {beta0_cov_prob_ols <- beta0_cov_prob_ols +1}
+  if (jv.lb[i,1]<1 & jv.ub[i,1]>1) {beta0_cov_prob_jv <- beta0_cov_prob_jv +1}
+  if (ols.lb[i,2]<1 & ols.ub[i,2]>1) {beta1_cov_prob_ols <- beta1_cov_prob_ols +1}
+  if (jv.lb[i,2]<1 & jv.ub[i,2]>1) {beta1_cov_prob_jv <- beta1_cov_prob_jv +1}
+}
+
+beta0_cov_prob_jv/1000
+beta0_cov_prob_ols/1000
+beta1_cov_prob_jv/1000
+beta1_cov_prob_ols/1000
+
+
+
+
+
+
+
+
+
+##1.4. WLS with unstructured sigma
+beta_hat_wls1 <- matrix(0, nrow=1000, ncol=2)
+beta_var_wls1 <- matrix(0, nrow=1000, ncol=2)
+### using nlme::gls ###
+for (i in 1:1000) {
+  y <- c(t(data[[i]]))
+  x <- rep(1:4,100)
+  id <- rep(1:100, each=4)
+  dat <- as.data.frame(cbind(id, y, x)); names(dat) <-c("id", "y", "x")
+  mod2 <- gls(y~x, data=dat, 
+              correlation=corSymm(form=~1|id), 
+              weights=varIdent(form=~1|x))
+  beta_hat_wls1[i,] <- mod2$coefficients
+  beta_var_wls1[i,] <- diag(mod2$varBeta)
+  print(i)
+}
+#simulation coefficients mean & variance
+apply(beta_hat_wls1,2,function(x) mean(x))
+apply(beta_hat_wls1,2,function(x) var(x))
+
+#sigma_estimates
+sigma_hat_wls1 <- vector("list", 1000)
+for (i in 1:1000) {
+  x <- cbind(rep(1,4),1:4)
+  y <- data[[i]]
+  y_hat <- x %*% beta_hat_wls1[i,]
+  value_sigma <- rowSums(apply(y, 1, function(xx) {(xx-y_hat)%*%t(xx-y_hat)}))
+  sigma_hat_wls1[[i]] <- matrix(value_sigma, nrow=4, byrow=T)/K
+}
+
+#robust variance estimates
+beta_var_robust <- function(sigma_hat_model) {
+  x <- cbind(rep(1,4),1:4)
+  var_hat <- sigma_hat_model
+  a <- solve(t(x)%*%solve(var_hat)%*%x)/K
+  b <- t(x)%*%solve(var_hat)
+  return(a%*%b%*%(sigma_y*100)%*%t(b)%*%t(a))
+}
+
+temp <- lapply(sigma_hat_wls1, beta_var_robust)
+temp <- lapply(temp, diag)
+beta_var_wls1_robust <- matrix(unlist(temp), nrow=1000, byrow=T)
+
+#variance comparison: mean & 95% CI coverage probability
+apply(beta_var_wls1,2,function(x) mean(x))
+apply(beta_var_wls1_robust,2,function(x) mean(x))
+
+wls1.lb <- beta_hat_wls1 - qt(.975, K-2)*sqrt(beta_var_wls1)
+wls1.ub <- beta_hat_wls1 + qt(.975, K-2)*sqrt(beta_var_wls1)
+robust1.lb <- beta_hat_wls1 - qt(.975, K-2)*sqrt(beta_var_wls1_robust)
+robust1.ub <- beta_hat_wls1 + qt(.975, K-2)*sqrt(beta_var_wls1_robust)
+beta0_cov_prob_wls1 <- 0
+beta0_cov_prob_robust1 <- 0
+beta1_cov_prob_wls1 <- 0
+beta1_cov_prob_robust1 <- 0
+for (i in 1:1000) {
+  if (wls1.lb[i,1]<1 & wls1.ub[i,1]>1) {beta0_cov_prob_wls1 <- beta0_cov_prob_wls1 +1}
+  if (robust1.lb[i,1]<1 & robust1.ub[i,1]>1) {beta0_cov_prob_robust1 <- beta0_cov_prob_robust1 +1}
+  if (wls1.lb[i,2]<1 & wls1.ub[i,2]>1) {beta1_cov_prob_wls1 <- beta1_cov_prob_wls1 +1}
+  if (robust1.lb[i,2]<1 & robust1.ub[i,2]>1) {beta1_cov_prob_robust1 <- beta1_cov_prob_robust1 +1}
+}
+
+beta0_cov_prob_wls1/1000
+beta0_cov_prob_robust1/1000
+beta1_cov_prob_wls1/1000
+beta1_cov_prob_robust1/1000
+
+
+
+
+
+
+
+
+
+##1.5. WLS with intraclass sigma
+beta_hat_wls2 <- matrix(0, nrow=1000, ncol=2)
+beta_var_wls2 <- matrix(0, nrow=1000, ncol=2)
+### using nlme::gls ###
+for (i in 1:1000) {
+  y <- c(t(data[[i]]))
+  x <- rep(1:4,100)
+  id <- rep(1:100, each=4)
+  dat <- as.data.frame(cbind(id, y, x)); names(dat) <-c("id", "y", "x")
+  mod3 <- gls(y~x, data=dat, 
+              correlation=corCompSymm(form=~1|id), 
+              weights=varIdent())
+              beta_hat_wls2[i,] <- mod3$coefficients
+              beta_var_wls2[i,] <- diag(mod3$varBeta)
+              print(i)
+}
+#simulation coefficients mean & variance
+apply(beta_hat_wls2,2,function(x) mean(x))
+apply(beta_hat_wls2,2,function(x) var(x))
+
+#sigma_estimates
+sigma_hat_wls2 <- vector("list", 1000)
+for (i in 1:1000) {
+  x <- cbind(rep(1,4),1:4)
+  y <- data[[i]]
+  y_hat <- x %*% beta_hat_wls2[i,]
+  value_sigma <- rowSums(apply(y, 1, function(xx) {(xx-y_hat)%*%t(xx-y_hat)}))
+  sigma_hat_wls2[[i]] <- matrix(value_sigma, nrow=4, byrow=T)/K
+}
+
+#robust variance estimates
+temp <- lapply(sigma_hat_wls2, beta_var_robust)
+temp <- lapply(temp, diag)
+beta_var_wls2_robust <- matrix(unlist(temp), nrow=1000, byrow=T)
+
+#variance comparison: mean & 95% CI coverage probability
+apply(beta_var_wls2,2,function(x) mean(x))
+apply(beta_var_wls2_robust,2,function(x) mean(x))
+
+wls2.lb <- beta_hat_wls2 - qt(.975, K-2)*sqrt(beta_var_wls2)
+wls2.ub <- beta_hat_wls2 + qt(.975, K-2)*sqrt(beta_var_wls2)
+robust2.lb <- beta_hat_wls2 - qt(.975, K-2)*sqrt(beta_var_wls2_robust)
+robust2.ub <- beta_hat_wls2 + qt(.975, K-2)*sqrt(beta_var_wls2_robust)
+beta0_cov_prob_wls2 <- 0
+beta0_cov_prob_robust2 <- 0
+beta1_cov_prob_wls2 <- 0
+beta1_cov_prob_robust2 <- 0
+for (i in 1:1000) {
+  if (wls2.lb[i,1]<1 & wls2.ub[i,1]>1) {beta0_cov_prob_wls2 <- beta0_cov_prob_wls2 +1}
+  if (robust2.lb[i,1]<1 & robust2.ub[i,1]>1) {beta0_cov_prob_robust2 <- beta0_cov_prob_robust2 +1}
+  if (wls2.lb[i,2]<1 & wls2.ub[i,2]>1) {beta1_cov_prob_wls2 <- beta1_cov_prob_wls2 +1}
+  if (robust2.lb[i,2]<1 & robust2.ub[i,2]>1) {beta1_cov_prob_robust2 <- beta1_cov_prob_robust2 +1}
+}
+
+beta0_cov_prob_wls2/1000
+beta0_cov_prob_robust2/1000
+beta1_cov_prob_wls2/1000
+beta1_cov_prob_robust2/1000
+
+
+
+
+
+
+
+
+
+##1.6. WLS with AR1 sigma
+beta_hat_wls3 <- matrix(0, nrow=1000, ncol=2)
+beta_var_wls3 <- matrix(0, nrow=1000, ncol=2)
+### using nlme::gls ###
+for (i in 1:1000) {
+  y <- c(t(data[[i]]))
+  x <- rep(1:4,100)
+  id <- rep(1:100, each=4)
+  dat <- as.data.frame(cbind(id, y, x)); names(dat) <-c("id", "y", "x")
+  mod4 <- gls(y~x, data=dat, 
+              correlation=corAR1(form=~1|id), 
+              weights=varIdent())
+  beta_hat_wls3[i,] <- mod4$coefficients
+  beta_var_wls3[i,] <- diag(mod4$varBeta)
+  print(i)
+}
+#simulation coefficients mean & variance
+apply(beta_hat_wls3,2,function(x) mean(x))
+apply(beta_hat_wls3,2,function(x) var(x))
+
+#sigma_estimates
+sigma_hat_wls3 <- vector("list", 1000)
+for (i in 1:1000) {
+  x <- cbind(rep(1,4),1:4)
+  y <- data[[i]]
+  y_hat <- x %*% beta_hat_wls3[i,]
+  value_sigma <- rowSums(apply(y, 1, function(xx) {(xx-y_hat)%*%t(xx-y_hat)}))
+  sigma_hat_wls3[[i]] <- matrix(value_sigma, nrow=4, byrow=T)/K
+}
+
+#robust variance estimates
+temp <- lapply(sigma_hat_wls3, beta_var_robust)
+temp <- lapply(temp, diag)
+beta_var_wls3_robust <- matrix(unlist(temp), nrow=1000, byrow=T)
+
+#variance comparison: mean & 95% CI coverage probability
+apply(beta_var_wls3,2,function(x) mean(x))
+apply(beta_var_wls3_robust,2,function(x) mean(x))
+
+wls3.lb <- beta_hat_wls3 - qt(.975, K-2)*sqrt(beta_var_wls3)
+wls3.ub <- beta_hat_wls3 + qt(.975, K-2)*sqrt(beta_var_wls3)
+robust3.lb <- beta_hat_wls3 - qt(.975, K-2)*sqrt(beta_var_wls3_robust)
+robust3.ub <- beta_hat_wls3 + qt(.975, K-2)*sqrt(beta_var_wls3_robust)
+beta0_cov_prob_wls3 <- 0
+beta0_cov_prob_robust3 <- 0
+beta1_cov_prob_wls3 <- 0
+beta1_cov_prob_robust3 <- 0
+for (i in 1:1000) {
+  if (wls3.lb[i,1]<1 & wls3.ub[i,1]>1) {beta0_cov_prob_wls3 <- beta0_cov_prob_wls3 +1}
+  if (robust3.lb[i,1]<1 & robust3.ub[i,1]>1) {beta0_cov_prob_robust3 <- beta0_cov_prob_robust3 +1}
+  if (wls3.lb[i,2]<1 & wls3.ub[i,2]>1) {beta1_cov_prob_wls3 <- beta1_cov_prob_wls3 +1}
+  if (robust3.lb[i,2]<1 & robust3.ub[i,2]>1) {beta1_cov_prob_robust3 <- beta1_cov_prob_robust3 +1}
+}
+
+beta0_cov_prob_wls3/1000
+beta0_cov_prob_robust3/1000
+beta1_cov_prob_wls3/1000
+beta1_cov_prob_robust3/1000
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#################################### Problem 2 ####################################
+##2.1. Parameter settings
+#Number of individuals
+K=100
+
+#Covariate
+X_i = matrix(c(1,1,1,1,1,2,3,4),nrow=4, byrow=F)
+
+#Coefficient
+beta = matrix(1, nrow=2)
+gamma = matrix(c(-0.7,0.7), nrow=2)
+
+#Theta of MVN
+mu_y = X_i %*% beta
+corr_y = matrix(.5, nrow=4, ncol=4); diag(corr_y)=1
+sd_y = diag(exp(gamma[1]+gamma[2]*(1:4-2.5)))
+sigma_y = sd_y %*% corr_y %*% sd_y
+
+##2.2. Data generation
+data2 <- vector("list", 1000)
+for (i in 1:1000) {
+  set.seed(i)
+  data2[[i]] <- MVNgen(K=K, mu_y, sigma_y)
+}
+
+
+##2.3. OLS esmtimates - beta/gamma
+#OLS model beta estimate
+beta_hat_ols <- matrix(0, nrow=1000, ncol=2)
+sigamsq_hat_ols <- 1:1000
+for (i in 1:1000) {
+  y <- c(t(data2[[i]]))
+  x <- rep(1:4,100)
+  dat <- as.data.frame(cbind(y, x)); names(dat) <-c("y", "x")
+  mod1 <- lm(y~x, data=dat)
+  beta_hat_ols[i,] <- mod1$coefficients
+  sigmasq_hat_ols[i] <- sum(mod1$residuals^2)/(K-2)
+}
+
+#simulation beta mean & variance
+apply(beta_hat_ols,2,function(x) mean(x))
+apply(beta_hat_ols,2,function(x) var(x))
+
+#gamma estimate
+
+
+
+
+##2.4. WLS esmtimates - beta/gamma
+#WLS model beta estimate - unstrutured sigma
+beta_hat_wls <- matrix(0, nrow=1000, ncol=2)
+beta_var_wls <- matrix(0, nrow=1000, ncol=2)
+### using nlme::gls ###
+for (i in 1:1000) {
+  y <- c(t(data2[[i]]))
+  x <- rep(1:4,100)
+  id <- rep(1:100, each=4)
+  dat <- as.data.frame(cbind(id, y, x)); names(dat) <-c("id", "y", "x")
+  mod2 <- gls(y~x, data=dat, 
+              correlation=corSymm(form=~1|id), 
+              weights=varIdent(form=~1|x))
+  beta_hat_wls[i,] <- mod2$coefficients
+  beta_var_wls[i,] <- diag(mod2$varBeta)
+  print(i)
+}
+
+#simulation beta mean & variance
+apply(beta_hat_wls,2,function(x) mean(x))
+apply(beta_hat_wls,2,function(x) var(x))
+
+#gamma estimate

@@ -1,0 +1,198 @@
+---
+title: "doc2"
+author: "2019-34930, Changsu Lee"
+date: "2019년 3월 27일"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*Problem1
+    + 1.1.Data generation
+    + 1.2.Function define
+    + 1.3.Model fitting
+    + 1.4.Calculate variance
+    + 1.5.CI and coverage probability
+    + Q1.1.
+    + Q1.2.
+    + Q1.3.
+*Problem2
+    + 2.1.Data generation
+    + 2.2.Model fitting
+    + Q2.1.
+    + Q2.2.
+    
+    
+# Problem 2
+##2.1. Data generation
+First step is to generate 1,000 simulation dataset. $y$ follows *MVN*_4($X_i\beta,A\Omega A$)  
+$diag(\sigma_j)=exp(\gamma_0 + \gamma_1(j-2.5))$
+$$ X_{i} = \left[\begin{array}{rr}1&1\\1&2\\1&3\\1&4\end{array}\right],\qquad
+\Omega=\left[\begin{array}{rrrr}1&.5&.5&.5\\.5&1&.5&.5\\.5&.5&1&.5\\.5&.5&.5&1\end{array}\right],\qquad
+A=\left[\begin{array}{rrrr}\sigma_1&0&0&0\\0&\sigma_2&0&0\\0&0&\sigma_3&0\\0&0&0&\sigma_4\end{array}\right].$$
+
+
+$$\beta=\left[\begin{array}{r}1\\1\end{array}\right],\qquad
+\gamma=\left[\begin{array}{r}-.7\\.7\end{array}\right].$$
+
+
+```{r}
+#Number of individuals
+K=100
+#Covariate
+X_i = matrix(c(1,1,1,1,1,2,3,4),nrow=4, byrow=F)
+#Coefficient
+beta = matrix(1, nrow=2)
+gamma = matrix(c(-0.7,0.7), nrow=2)
+#Theta of MVN
+mu_y = X_i %*% beta
+corr_y = matrix(.5, nrow=4, ncol=4); diag(corr_y)=1
+sd_y = diag(exp(gamma[1]+gamma[2]*(1:4-2.5)))
+sigma_y = sd_y %*% corr_y %*% sd_y
+mu_y
+sigma_y
+
+#y for 1,000 simulation
+library(mvtnorm)
+data2 <- vector("list", 1000)
+for (i in 1:1000) {
+  set.seed(i)
+  data2[[i]] <- rmvnorm(n=K, mean=mu_y, sigma=sigma_y)
+}
+#dataset for regression
+data_lm2 <- vector("list", 1000)
+for (i in 1:1000) {
+  y <- c(t(data2[[i]]))
+  x <- rep(1:4,100)
+  id <- rep(1:100, each=4)
+  temp <- as.data.frame(cbind(id, y, x)); names(temp) <-c("id", "y", "x")
+  data_lm2[[i]] <- temp
+}
+
+```
+
+
+```{r echo=FALSE}
+
+### Robust variance estimator
+robust_var <- function(data, beta_tilda, type) {
+  # data from data[[i]]
+  value <- apply(data, 1, function(x) {
+    (x-X_i%*%beta_tilda) %*% t(x-X_i%*%beta_tilda)}
+    )
+  value <- rowSums(value)
+  V_hat <- matrix(value, nrow=4, byrow=T)/K
+  W = solve(V_hat)
+  if (type=="ols") {W=diag(4)}
+  
+  bread <- solve(t(X_i)%*%W%*%X_i)/K
+  ham <- (t(X_i)%*%W%*%V_hat%*%W%*%X_i)*K
+  return(bread %*% ham %*% t(bread))
+}
+
+### CI calculation
+getCI <- function(beta_hat, beta_var) {
+  #beta_var -> vector with beta0_var, beta1_var
+  #estimated distribution assumed to follow student's t
+  lb = beta_hat - qt(.975, K-2)*sqrt(beta_var)
+  ub = beta_hat + qt(.975, K-2)*sqrt(beta_var)
+  temp <- cbind(lb, ub); row.names(temp) <- c("beta0", "beta1")
+  return(temp)
+}
+```
+
+
+
+##2.2. Model fitting
+R function **lm**(for ols), **nlme::gls**(for wls) and **nls**(for gamma estimate) were used.
+###A.OLS estimates
+```{r}
+#beta estimate
+beta_hat_ols2 <- matrix(0, nrow=1000, ncol=2)
+sigma_hat_ols2 <- 1:1000
+for (i in 1:1000) {
+  mod2_1<- lm(y~x, data=data_lm2[[i]])
+  beta_hat_ols2[i,] <- mod2_1$coefficients
+  sigma_hat_ols2[i] <- sum(mod2_1$residuals^2)/(K-2)
+}
+
+#gamma estimate
+gamma_hat_ols <- matrix(0, nrow=1000, ncol=2)
+for (i in 1:1000) {
+  dat <- data_lm2[[i]]
+  dat$y <- abs(dat$y-rep(X_i%*%beta_hat_ols2[i,], 100))
+  dat$x <- dat$x-2.5
+  mod2_2 <- nls(y~exp(a+b*x), data=dat, nls.control(maxiter=10000, minFactor = 1e-04),
+                start=list(a=1, b=1))
+  gamma_hat_ols[i,] <- coef(mod2_2)
+}
+```
+
+
+###B.WLS estimates w/ unstructured variance
+```{r}
+#beta estimate
+library(nlme)
+beta_hat_wls <- matrix(0, nrow=1000, ncol=2)
+beta_var_wls <- matrix(0, nrow=1000, ncol=2)
+for (i in 1:1000) {
+  mod2 <- gls(y~x, data=data_lm2[[i]], 
+              correlation=corSymm(form=~1|id), 
+              weights=varIdent(form=~1|x))
+  beta_hat_wls[i,] <- mod2$coefficients
+  beta_var_wls[i,] <- diag(mod2$varBeta)
+}
+
+#gamma estimate
+gamma_hat_wls <- matrix(0, nrow=1000, ncol=2)
+for (i in 1:1000) {
+  dat <- data_lm2[[i]]
+  dat$y <- abs(dat$y-rep(X_i%*%beta_hat_wls[i,], 100))
+  dat$x <- dat$x-2.5
+  mod2_4 <- nls(y~exp(a+b*x), data=dat, nls.control(maxiter=10000, minFactor = 1e-04),
+                start=list(a=1, b=1))
+  gamma_hat_wls[i,] <- coef(mod2_4)
+}
+```
+
+
+##Q2.1. Mean of the estimates & simulation variance of beta
+```{r echo=FALSE}
+#OLS
+m1<-apply(beta_hat_ols2,2,function(x) mean(x))
+v1<-apply(beta_hat_ols2,2,function(x) var(x))
+#WLS
+m2<-apply(beta_hat_wls,2,function(x) mean(x))
+v2<-apply(beta_hat_wls,2,function(x) var(x))
+
+#matrix form
+table <- matrix(c(m1[1], v1[1], m1[2], v1[2],
+                  m2[1], v2[1], m2[2], v2[2]),
+                nrow=2, byrow=T)
+
+row.names(table) <- c("OLS", "WLS/un")
+colnames(table) <- c("mean_beta0", "var_beta0", "mean_beta1", "var_beta1")
+table
+```
+
+
+##Q2.2. Mean of the estimates & simulation variance of gamma
+```{r echo=FALSE}
+#OLS
+m1<-apply(gamma_hat_ols,2,function(x) mean(x))
+v1<-apply(gamma_hat_ols,2,function(x) var(x))
+#WLS
+m2<-apply(gamma_hat_wls,2,function(x) mean(x))
+v2<-apply(gamma_hat_wls,2,function(x) var(x))
+
+#matrix form
+table <- matrix(c(m1[1], v1[1], m1[2], v1[2],
+                  m2[1], v2[1], m2[2], v2[2]),
+                nrow=2, byrow=T)
+
+row.names(table) <- c("OLS", "WLS/un")
+colnames(table) <- c("mean_gamma0", "var_gamma0", "mean_gamma1", "var_gamma1")
+table
+```

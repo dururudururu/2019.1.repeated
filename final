@@ -1,0 +1,504 @@
+library(lme4)
+library(dplyr)
+library(nlme)
+library(VIM)
+library(merTools)
+library(mice)
+library(Hmisc)
+setwd("D:/RM/Piat_model")
+
+
+new_data <- read.table('Piat_model.dat', sep=' ')
+names(new_data) <- c('E8033100',
+  'E8043100',
+  'E8043200',
+  'R0000100',
+  'R0320600',
+  'R0358300',
+  'R0358400',
+  'R0358900',
+  'R0536300',
+  'R0536401',
+  'R0536402',
+  'R0682800',
+  'R0684400',
+  'R0685400',
+  'R1200300',
+  'R1204500',
+  'R1204600',
+  'R1210800',
+  'R1217500',
+  'R1235800',
+  'R1302400',
+  'R1302500',
+  'R1302600',
+  'R1302700',
+  'R1482600',
+  'R1487000',
+  'R1487100',
+  'R1487200',
+  'R1487300',
+  'R1487400',
+  'R1487500',
+  'R1487600',
+  'R2164000',
+  'R2189900',
+  'R2190900',
+  'R2558800',
+  'R2563300',
+  'R2569700',
+  'R2576800',
+  'R3481900',
+  'R3509000',
+  'R3510000',
+  'R3880300',
+  'R3884900',
+  'R3891700',
+  'R3899100',
+  'R4880100',
+  'R4907100',
+  'R4908100',
+  'R5459400',
+  'R5464100',
+  'R5473700',
+  'R5484100',
+  'R6497500',
+  'R7222400',
+  'R7227800',
+  'R7237400',
+  'R7248400',
+  'S0922900',
+  'S1225000',
+  'S1535500',
+  'S1541700',
+  'S1552700',
+  'S1564300',
+  'Z9033800')
+
+# Handle missing values
+
+  new_data[new_data == -1] = NA  # Refused 
+  new_data[new_data == -2] = NA  # Dont know 
+  new_data[new_data == -3] = NA  # Invalid missing 
+  new_data[new_data == -4] = NA  # Valid missing 
+  new_data[new_data == -5] = NA  # Non-interview 
+
+varlabels <- c("ARREST_TOTNUM",
+  "INCARC_TOTNUM",
+  "INCARC_AGE_FIRST",
+  "PUBID - YTH ID CODE 1997",
+  "HOW RS GENL HEALTH? 1997",
+  "R EVER DRINK ALCOHOL? 1997",
+  "AGE 1ST TIME DRINK ALCOHOL? 1997",
+  "R EVER USE MARIJUANA? 1997",
+  "KEY!SEX (SYMBOL) 1997",
+  "KEY!BDATE M/Y (SYMBOL) 1997",
+  "KEY!BDATE M/Y (SYMBOL) 1997",
+  "R TROUBLE SENSORY 1997",
+  "R HAVE DEFORM/MISSING PART? 1997",
+  "R HAVE CHRONIC COND? 1997",
+  "CV_CENSUS_REGION 1997",
+  "CV_INCOME_GROSS_YR 1997",
+  "CV_HH_INCOME_SOURCE 1997",
+  "CV_PIAT_STANDARD_SCORE 1997",
+  "CV_URBAN-RURAL 1997",
+  "CV_SAMPLE_TYPE 1997",
+  "CV_HGC_BIO_DAD 1997",
+  "CV_HGC_BIO_MOM 1997",
+  "CV_HGC_RES_DAD 1997",
+  "CV_HGC_RES_MOM 1997",
+  "KEY!RACE_ETHNICITY (SYMBOL) 1997",
+  "FAMILY/HOME RISK INDEX 1997",
+  "PHYSICAL ENVIRONMENT RISK INDEX 1997",
+  "ENRICHING ENVIRONMENT RISK INDEX 1997",
+  "GIRLS BEHAVE/EMOT SCALE, YTH RPT 1997",
+  "BOYS BEHAVE/EMOT SCALE, YTH RPT 1997",
+  "GIRLS BEHAVE/EMOT SCALE, PAR RPT 1997",
+  "BOYS BEHAVE/EMOT SCALE, PAR RPT 1997",
+  "HOW RS GENERAL HEALTH? 1998",
+  "R EVER DRINK ALCOHOL? 1998",
+  "R EVER USE MARIJUANA? 1998",
+  "CV_CENSUS_REGION 1998",
+  "CV_INCOME_GROSS_YR 1998",
+  "CV_PIAT_STANDARD_SCORE 1998",
+  "CV_URBAN-RURAL 1998",
+  "HOW RS GENERAL HEALTH? 1999",
+  "R EVER DRINK ALCOHOL? 1999",
+  "R EVER USE MARIJUANA? 1999",
+  "CV_CENSUS_REGION 1999",
+  "CV_INCOME_GROSS_YR 1999",
+  "CV_PIAT_STANDARD_SCORE 1999",
+  "CV_URBAN-RURAL 1999",
+  "HOW RS GENERAL HEALTH? 2000",
+  "R EVER DRINK ALCOHOL? 2000",
+  "R EVER USE MARIJUANA? 2000",
+  "CV_CENSUS_REGION 2000",
+  "CV_INCOME_GROSS_YR 2000",
+  "CV_PIAT_STANDARD_SCORE 2000",
+  "CV_URBAN-RURAL 2000",
+  "HOW RS GENERAL HEALTH? 2001",
+  "CV_CENSUS_REGION 2001",
+  "CV_INCOME_GROSS_YR 2001",
+  "CV_PIAT_STANDARD_SCORE 2001",
+  "CV_URBAN-RURAL 2001",
+  "R EVER USE MARIJUANA? 2002",
+  "HOW R'S GENERAL HEALTH? 2002",
+  "CV_CENSUS_REGION 2002",
+  "CV_INCOME_GROSS_YR 2002",
+  "CV_PIAT_STANDARD_SCORE 2002",
+  "CV_URBAN-RURAL 2002",
+  "CVC_SAT_MATH_RND_2007"
+)
+
+
+# Use qnames rather than rnums
+
+qnames = function(data) {
+  names(data) <- c("ARREST_TOTNUM_XRND",
+    "INCARC_TOTNUM_XRND",
+    "INCARC_AGE_FIRST_XRND",
+    "PUBID_1997",
+    "YHEA-100_1997",
+    "YSAQ-363_1997",
+    "YSAQ-364_1997",
+    "YSAQ-369_1997",
+    "KEY_SEX_1997",
+    "KEY_BDATE_M_1997",
+    "KEY_BDATE_Y_1997",
+    "PC9-014_1997",
+    "PC9-023_1997",
+    "PC9-032_1997",
+    "CV_CENSUS_REGION_1997",
+    "CV_INCOME_GROSS_YR_1997",
+    "CV_HH_INCOME_SOURCE_1997",
+    "CV_PIAT_STANDARD_SCORE_1997",
+    "CV_URBAN-RURAL_1997",
+    "CV_SAMPLE_TYPE_1997",
+    "CV_HGC_BIO_DAD_1997",
+    "CV_HGC_BIO_MOM_1997",
+    "CV_HGC_RES_DAD_1997",
+    "CV_HGC_RES_MOM_1997",
+    "KEY_RACE_ETHNICITY_1997",
+    "FP_ADHRISKI_1997",
+    "FP_ADPENVRI_1997",
+    "FP_ADENRCHI_1997",
+    "FP_YYFBEHS_1997",
+    "FP_YYMBEHS_1997",
+    "FP_PYFBEHS_1997",
+    "FP_PYMBEHS_1997",
+    "YHEA-100_1998",
+    "YSAQ-363_1998",
+    "YSAQ-369_1998",
+    "CV_CENSUS_REGION_1998",
+    "CV_INCOME_GROSS_YR_1998",
+    "CV_PIAT_STANDARD_SCORE_1998",
+    "CV_URBAN-RURAL_1998",
+    "YHEA-100_1999",
+    "YSAQ-363_1999",
+    "YSAQ-369_1999",
+    "CV_CENSUS_REGION_1999",
+    "CV_INCOME_GROSS_YR_1999",
+    "CV_PIAT_STANDARD_SCORE_1999",
+    "CV_URBAN-RURAL_1999",
+    "YHEA-100_2000",
+    "YSAQ-363_2000",
+    "YSAQ-369_2000",
+    "CV_CENSUS_REGION_2000",
+    "CV_INCOME_GROSS_YR_2000",
+    "CV_PIAT_STANDARD_SCORE_2000",
+    "CV_URBAN-RURAL_2000",
+    "YHEA-100_2001",
+    "CV_CENSUS_REGION_2001",
+    "CV_INCOME_GROSS_YR_2001",
+    "CV_PIAT_STANDARD_SCORE_2001",
+    "CV_URBAN-RURAL_2001",
+    "YSAQ-369_2002",
+    "YHEA-100_2002",
+    "CV_CENSUS_REGION_2002",
+    "CV_INCOME_GROSS_YR_2002",
+    "CV_PIAT_STANDARD_SCORE_2002",
+    "CV_URBAN-RURAL_2002",
+    "CVC_SAT_MATH_RND_2007_XRND")
+  return(data)
+}
+
+
+#********************************************************************************************************
+
+# Remove the '#' before the following line to create a data file called "categories" with value labels. 
+#categories <- vallabels(new_data)
+
+# Remove the '#' before the following lines to rename variables using Qnames instead of Reference Numbers
+#new_data <- qnames(new_data)
+#categories <- qnames(categories)
+
+# Produce summaries for the raw (uncategorized) data file
+str(new_data)
+
+# Remove the '#' before the following lines to produce summaries for the "categories" data file.
+#categories <- vallabels(new_data)
+#summary(categories)
+
+#************************************************************************************************************
+
+
+
+
+data6y = qnames(new_data)
+str(data6y)
+
+## DATA filtering
+#constant
+sex = grep(x=names(data6y), "SEX")
+byear = grep(x=names(data6y), "BDATE_Y")
+race = grep(x=names(data6y), "RACE_ETHNICITY")
+hrisk = grep(x=names(data6y), "ADHRISKI")
+dsensory = grep(x=names(data6y), "PC9-014_1997")
+dbodypart = grep(x=names(data6y), "PC9-023_1997")
+dchronic = grep(x=names(data6y), "PC9-032_1997")
+edudad = grep(x=names(data6y), "HGC_BIO_DAD")
+edumom = grep(x=names(data6y), "HGC_BIO_MOM")
+
+#repeated
+income = grep(x=names(data6y), "INCOME_GROSS")
+cog = grep(x=names(data6y), "PIAT")
+health = grep(x=names(data6y), "YHEA")
+
+#repeated in sub_use
+alcohol = grep(x=names(sub_use), "YSAQ-367")
+weed = grep(x=names(sub_use), "YSAQ-371")
+
+
+data = cbind.data.frame(data6y[,c(sex,race,byear,
+                          hrisk,dsensory,dbodypart,dchronic,
+                          edudad,edumom,
+                          cog,
+                          income,health)],
+                        sub_use[,c(alcohol, weed)])
+
+
+names(data) = c("sex","race","byear",
+                "hrisk","dsen","dpart","dchro",
+                "edudad", "edumom",
+  
+                "cog1","cog2","cog3","cog4","cog5","cog6",
+                "income1","income2","income3","income4","income5","income6",
+                "health1","health2","health3","health4","health5","health6",
+                
+                "alco1","alco2","alco3","alco4","alco5","alco6",
+                "weed1","weed2","weed3","weed4","weed5","weed6")
+
+
+## DATA long format
+data = mutate(data, ID=row.names(data))
+
+del.index = apply(data[,10:15], 2, is.na)
+del.index = rowSums(del.index)
+data = data[-which(del.index==6),]
+
+dat.cog = reshape(data, direction = "long", 
+                  varying=list(c("cog1","cog2","cog3","cog4","cog5","cog6")),
+                  v.names = "cog", timevar="round",
+                  idvar="ID", times=1:6)
+dat.inc = reshape(data, direction = "long", 
+                  varying=list(c("income1","income2","income3","income4","income5","income6")),
+                  v.names = "income", timevar="round",
+                  idvar="ID", times=1:6)
+dat.hel = reshape(data, direction = "long", 
+                  varying=list(c("health1","health2","health3","health4","health5","health6")),
+                  v.names = "health", timevar="round",
+                  idvar="ID", times=1:6)
+dat.alc = reshape(data, direction = "long", 
+                  varying=list(c("alco1","alco2","alco3","alco4","alco5","alco6")),
+                  v.names = "alcoholo", timevar="round",
+                  idvar="ID", times=1:6)
+dat.wee = reshape(data, direction = "long", 
+                  varying=list(c("weed1","weed2","weed3","weed4","weed5","weed6")),
+                  v.names = "weed", timevar="round",
+                  idvar="ID", times=1:6)
+data.long = cbind.data.frame(dat.cog[,c(34,1:9,35,36)],dat.inc[,36],dat.hel[,36],dat.alc[,36],dat.wee[,36])
+names(data.long)[12:16] = c("cog","income","health","alcohol","weed")
+
+#income scaling
+data.long = data.long[-which(data.long$income<0),]
+data.long$income[which(is.na(data.long$income)==F)] = log(data.long$income[which(is.na(data.long$income)==F)]+1)
+
+#health reverse
+data.long$health = 6-data.long$health
+
+#edu recoding
+data.long$edudad[which(data.long$edudad==95)]=NA
+data.long$edumom[which(data.long$edumom==95)]=NA
+  
+#Factor variables
+data.long$ID = as.factor(data.long$ID)
+data.long$sex = as.factor(data.long$sex)
+data.long$race = as.factor(data.long$race)
+data.long$byear = as.factor(data.long$byear)
+data.long$dsen = as.factor(data.long$dsen)
+data.long$dpart = as.factor(data.long$dpart)
+data.long$dchro = as.factor(data.long$dchro)
+
+data.long = subset(data.long, select=-weed)
+
+
+dat = na.omit(data[,10:15])
+dat = na.omit(dnew)
+dim(dat)
+
+
+####### 1.Plot of Vars
+## 01. PIAT score
+dat = data
+plot(1:6, dat[1,10:15],ylim=c(50,150),type="b", col="white")
+for (i in 1:dim(dat)[1]) {lines(1:6, dat[i,10:15],type="b", pch=16)}
+
+dat2 = data=na.omit(data.long[,c("cog","round")])
+lines(lowess(dat2$round,dat2$cog), col="red", lwd=2)
+
+## 02. PIAT score by other vars
+# 02.a.Race
+# 1.Black 2.Hispanic 3.Mixed race(Non-Hispanic) 4.Non-Black/Non-Hispanic
+plot(cog~race, data=data.long)
+
+# 02.b.Sex
+# 1.Male 2.Female
+plot(cog~sex, data=data.long)
+
+# 02.c.income
+plot(cog~income, data=data.long)
+dnew = data.long[-which(data.long$income==0),]
+plot(cog~income, data=dnew)  #zero-income data deleted
+
+
+#02.d.health
+plot(cog~health, data=data.long)
+
+#02.e.hrisk
+plot(cog~hrisk, data=data.long)
+
+#02.f.dsensory
+plot(cog~dsen, data=data.long)
+
+#02.g.dbodypart
+plot(cog~dpart, data=data.long)
+
+#02.h.dchronic
+plot(cog~dchro, data=data.long)
+
+#02.j.edudad
+plot(cog~edudad, data=data.long)
+
+#02.k.edumom
+plot(cog~edumom, data=data.long)
+
+#02.l.byear
+plot(cog~byear, data=data.long)
+
+
+## summary stat
+summary(data.long)
+str(data.long)
+
+
+
+### MISSING DATA
+aggr(dnew, prop=T)
+
+sink("sum1.txt")
+sink()
+
+
+
+
+####### 2.Model fitting
+## 1.Default model
+mod0 = lm(cog ~ 1 + round, data=data.long)
+mod1.a = lmer(cog ~ 1 + round + (1|ID),
+            data=data.long, REML=F)
+mod1.b = lmer(cog ~ 1 + round + race + (1|ID),
+              data=data.long, REML=F)
+
+summary(mod0)
+stats::BIC(mod0)
+summary(mod1.a)
+summary(mod1.b)
+
+
+
+## 2.Risk factor model
+mod2.a = lmer(cog ~ 1 + round + race +  
+                hrisk + dsen  + dpart + dchro + (1|ID),
+              data=data.long, REML=F)
+
+mod2.b = lmer(cog ~ 1 + round + race + 
+                hrisk + dsen  + dpart + dchro + health  + (1|ID),
+              data=data.long, REML=F)
+summary(mod2.a)
+summary(mod2.b)
+
+
+
+
+## 3.SES model
+mod3.a = lmer(cog ~ 1 + round + race + 
+                income + (1|ID),
+              data=data.long, REML=F)
+mod3.a = lmer(cog ~ 1 + round + race + 
+                income + (1|ID),
+              data=dnew, REML=F)
+
+
+mod3.b = lmer(cog ~ 1 + round + race + 
+                edudad + edumom + (1|ID),
+              data=dnew, REML=F)
+mod3.b = lmer(cog ~ 1 + round + race +  
+                income + edudad + edumom + (1|ID),
+              data=dnew, REML=F)
+summary(mod3.a)
+summary(mod3.a2)
+summary(mod3.b)
+summary(mod3.c)
+
+
+
+## 4.Full model
+mod4.a = lmer(cog ~ 1 + round + race + 
+                hrisk + dsen + dpart + dchro + health  + 
+                    income + edudad + edumom + (1|ID),
+                    data=data.long, REML=F)
+mod4 = lmer(cog ~ 1 + round + race +  
+                hrisk + dsen + dpart + dchro + health  + 
+                    income + edudad + edumom + (1|ID),
+                    data=dnew, REML=F)
+
+summary(mod4.a)
+summary(mod4)
+
+
+confint.beta = confint(mod4, oldNames=F)
+
+beta_fm = mod4@beta
+theta_fm = as.data.frame(unclass(coef(mod4)))
+plot(theta_fm$ID..Intercept.-beta_fm[1])
+plot(residuals(mod4.b))
+
+plot(mod4.b)
+qqmath(ranef(mod4.b, condVar=T), pch=16, col="darkred")
+
+randomSims = REsim(mod4.b, n.sims=500)
+plotREsim(randomSims)
+
+bicmod = c(BIC(mod0),BIC(mod1.a),BIC(mod1.b),BIC(mod2.a),BIC(mod2.b),BIC(mod3.a),BIC(mod3.b),BIC(mod4))
+plot(bicmod, col="white")
+text(bicmod, labels=c("mod0","mod1.a","mod1.b","mod2.a","mod2.b","mod3.a","mod3.b","mod4"),col="black")
+
+
+
+str(theta_fm)
+beta_fm
+df = cbind.data.frame(beta_fm, confint.beta[-c(1:2),])
+df = 
+
+with(df, errbar(df$beta_fm, df$beta_fm, df$`97.5 %`, df$`2.5 %`))
+grid(nx=NA, ny=NULL)
